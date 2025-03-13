@@ -1,0 +1,9 @@
+@software{Sowersby_Harmonic_Resonance_2025,
+  author       = {Scott Sowersby},
+  title        = {Harmonic Resonance Statistics Beyond the Standard Model},
+  year         = {2025},
+  publisher    = {GitHub},
+  version      = {1.0},
+  url          = {https://github.com/projectapertureBSM/Beyond-Standard-Model/blob/main/Higgs.ipynb},
+  commit       = {abc1234}  % Replace with your actual commit hash
+}
