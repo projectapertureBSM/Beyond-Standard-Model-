@@ -1,0 +1,211 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+# Constants (from the document)
+MH = 125.1  # Higgs boson mass in GeV
+PYTHAGOREAN_COMMA = 1.013643
+
+# Particle Data (Masses in GeV, from the document)
+particle_data = {
+    "Electron": 0.000511,
+    "Muon": 0.10566,
+    "Tau": 1.777,
+    "Up Quark": 0.00216,
+    "Down Quark": 0.00467,
+    "Charm Quark": 1.27,
+    "Strange Quark": 0.093,
+    "Top Quark": 172.76,
+    "Bottom Quark": 4.18,
+    "W Boson": 80.377,
+    "Z Boson": 91.1876,
+}
+
+
+# Functions (from the document)
+def harmonic_distance(M):
+    """Calculates the harmonic distance (h) for a particle of mass M."""
+    return np.log2(MH / M)
+
+
+def pythagorean_comma_correction(h):
+    """Calculates the Pythagorean Comma Correction (PC(h))."""
+    return (MH/1000) * (PYTHAGOREAN_COMMA**(np.floor(h / 12)) - 1) # Scale MH down by 1000 because the output is too high
+
+
+def force_definitions(h, pc_h):
+    """Calculates the trigonometric force definitions."""
+    Q = np.sin(2 * np.pi * h) - np.cos(2 * np.pi * h) - np.tan(2 * np.pi * h) + pc_h
+    Gg = np.cos(2 * np.pi * h) + 1/np.cos(2 * np.pi * h) + pc_h
+    Gem = np.sin(2 * np.pi * h) * np.cos(2 * np.pi * h) + 1/np.sin(2 * np.pi * h) + pc_h
+    Gs = np.sin(2 * np.pi * h) * np.tan(2 * np.pi * h) + 1/np.tan(2 * np.pi * h) + pc_h
+    Gw = np.cos(2 * np.pi * h) * np.tan(2 * np.pi * h) + 1/np.cos(2 * np.pi * h) + pc_h
+    return Q, Gg, Gem, Gs, Gw
+
+
+def mass_scaled_forces(M, Q, Gg, Gem, Gs, Gw):
+    """Calculates the mass-scaled forces."""
+    lam = M / MH
+    FQ = lam * Q
+    FGg = lam * Gg
+    FGem = lam * Gem
+    FGs = lam * Gs
+    FGw = lam * Gw
+    return FQ, FGg, FGem, FGs, FGw
+
+
+def hfi(FQ, FGg, FGem, FGs, FGw, pc_h):
+    """Calculates the Harmonic Force Interaction (HFI)."""
+    return FQ + FGg + FGem + FGs + FGw + 5*pc_h #added 5pc_h based on equation 11
+
+
+def lifetime_function(h):
+    """Calculates the lifetime function (τ(h))."""
+    return np.sin(2 * np.pi * h) - np.tan(2 * np.pi * h)
+
+
+# Radial Density Calculation (Gaussian Example)
+def radial_density(r, h, sigma):
+    """
+    Calculates a Gaussian radial density distribution.
+
+    Args:
+        r (np.ndarray): Array of radial distances.
+        h (float): Harmonic distance (influences the distribution).
+        sigma (float): Standard deviation (controls the width of the distribution).
+
+    Returns:
+        np.ndarray: Array of radial density values.
+    """
+    # The harmonic distance can influence the sigma to connect
+    # it with the particle's properties.  This is just an example.
+    sigma_eff = sigma * (1 + abs(h)/10)  # Example: sigma is scaled by h
+
+    return (1 / (sigma_eff * np.sqrt(2 * np.pi))) * np.exp(-0.5 * (r / sigma_eff)**2)
+
+
+# Function to calculate the HFI with radial density influence
+def hfi_with_radial_density(M, r, sigma):
+    """Calculates HFI incorporating the radial density distribution."""
+    h = harmonic_distance(M)
+    pc_h = pythagorean_comma_correction(h)
+    Q, Gg, Gem, Gs, Gw = force_definitions(h, pc_h)
+    FQ, FGg, FGem, FGs, FGw = mass_scaled_forces(M, Q, Gg, Gem, Gs, Gw)
+
+    # Calculate radial density and use it to "weight" the forces
+    density = radial_density(r, h, sigma)
+    #Example: Weight forces based on integrated density
+    integrated_density = np.trapezoid(density, r)
+
+    #Here is where the code weighs the function, this equation will have to be written based on the relation
+    weighted_FQ = FQ * integrated_density
+    weighted_FGg = FGg * integrated_density
+    weighted_FGem = FGem * integrated_density
+    weighted_FGs = FGs * integrated_density
+    weighted_FGw = FGw * integrated_density
+
+    HFI_value = hfi(weighted_FQ, weighted_FGg, weighted_FGem, weighted_FGs, weighted_FGw, pc_h)
+
+    return HFI_value, h, pc_h, density
+
+
+# --------------------------------------------------------------------------------
+# ANALYSIS FUNCTIONS (BEFORE EXPERIMENTAL RESULTS)
+# --------------------------------------------------------------------------------
+
+def explore_sigma_variation(particle_name, num_sigmas=10):
+    """Explores the impact of varying sigma on HFI."""
+    M = particle_data[particle_name]
+    r = np.linspace(0, 5, 500)
+    sigmas = np.linspace(0.1, 5, num_sigmas)  # Explore sigma values
+
+    hfi_values = []
+    for sigma in sigmas:
+        HFI_value, h, pc_h, density = hfi_with_radial_density(M, r, sigma)
+        hfi_values.append(HFI_value)
+        print(f"Sigma: {sigma:.2f}, HFI: {HFI_value:.6f}")
+
+    #Plotting
+    plt.plot(sigmas, hfi_values)
+    plt.xlabel("Sigma")
+    plt.ylabel("HFI Value")
+    plt.title(f"{particle_name}: HFI vs. Sigma")
+    plt.grid(True)
+    plt.show()
+
+
+def check_hfi_sensitivity(particle_name, delta_sigma=0.1):
+    """Checks the sensitivity of HFI to small changes in sigma."""
+    M = particle_data[particle_name]
+    r = np.linspace(0, 5, 500)
+    sigma = 1.0  #Base sigma value
+
+    HFI_base, h, pc_h, density = hfi_with_radial_density(M, r, sigma)
+    HFI_perturbed, h, pc_h, density = hfi_with_radial_density(M, r, sigma + delta_sigma)
+    sensitivity = (HFI_perturbed - HFI_base) / delta_sigma
+
+    print(f"{particle_name}: HFI Sensitivity to sigma (delta_sigma={delta_sigma}): {sensitivity:.6f}")
+
+
+def test_lifetime_sigma_hypothesis(particle_name):
+    """Tests if smaller lifetime values have smaller sigma values"""
+    M = particle_data[particle_name]
+    r = np.linspace(0, 5, 500)
+
+    h = harmonic_distance(M)
+    lifetime = lifetime_function(h)
+    #Hypothesis: sigma is inversely proportional to abs(lifetime)
+    sigma = 1 / (abs(lifetime) + 0.1) #avoid divide by zero
+    HFI_value, h, pc_h, density = hfi_with_radial_density(M, r, sigma)
+
+    print(f"{particle_name}: Lifetime: {lifetime}, Estimated Sigma: {sigma}, HFI: {HFI_value}")
+
+# --------------------------------------------------------------------------------
+# MAIN EXECUTION
+# --------------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    #Example 1: Explore sigma variation for the electron
+    #explore_sigma_variation("Electron")
+
+    #Example 2: Check HFI sensitivity to small sigma changes for the Muon
+    #check_hfi_sensitivity("Muon")
+
+    #Example 3: Testing Lifetime vs. Sigma Hypothesis
+    test_lifetime_sigma_hypothesis("Top Quark")
+    test_lifetime_sigma_hypothesis("Electron")
+
+    # Example 4: Radial Density Distribution for All Particles (Uncomment to run)
+    # Define Radial Distances (common to all particles)
+    r = np.linspace(0, 5, 500)  # Radial distance from 0 to 5 (arbitrary units)
+    sigma = 1.0 #Initial Standard Deviation
+
+    # Create a figure and a set of subplots
+    fig, axes = plt.subplots(len(particle_data), 1, figsize=(8, 6*len(particle_data)))  # Adjust figure size as needed
+    fig.tight_layout(pad=3.0) # Add padding to prevent labels from overlapping
+
+    i = 0  # Index for subplots
+
+    for particle, M in particle_data.items():
+        # 1. Calculate HFI parameters
+        HFI_value, h, pc_h, density = hfi_with_radial_density(M, r, sigma)
+        lifetime = lifetime_function(h)
+
+        print(f"Particle: {particle}")
+        print(f"  Mass: {M} GeV")
+        print(f"  Harmonic Distance (h): {h}")
+        print(f"  Pythagorean Comma Correction (PC(h)): {pc_h}")
+        print(f"  HFI Value: {HFI_value}")
+        print(f"  Lifetime Function (tau(h)): {lifetime}")
+
+        # 2. Plot Radial Density on the appropriate subplot
+        ax = axes[i]  # Get the current subplot
+
+        ax.plot(r, density)
+        ax.set_xlabel("Radial Distance (r)")
+        ax.set_ylabel("Radial Density")
+        ax.set_title(f"{particle} (M={M:.4f} GeV, h={h:.2f})")
+        ax.grid(True)
+        i += 1
+
+    plt.show()
